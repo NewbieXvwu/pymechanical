@@ -34,6 +34,7 @@ import pytest
 
 from ansys.mechanical.core.embedding.initializer import SUPPORTED_MECHANICAL_EMBEDDING_VERSIONS
 from ansys.mechanical.core.ide_config import (
+    _get_user_settings_path,
     cli as ideconfig_cli,
     get_stubs_location,
     get_stubs_versions,
@@ -317,14 +318,9 @@ def get_settings_location() -> str:
     Returns
     -------
     str
-        The path to the settings.json file for users on Windows and Linux.
+        The path to the VS Code user settings.json file for this platform.
     """
-    if "win" in sys.platform:
-        settings_json = Path(os.environ.get("APPDATA")) / "Code" / "User" / "settings.json"
-    elif "lin" in sys.platform:
-        settings_json = Path(os.environ.get("HOME")) / ".config" / "Code" / "User" / "settings.json"
-
-    return settings_json
+    return _get_user_settings_path()
 
 
 @pytest.mark.cli
@@ -350,11 +346,9 @@ def test_ideconfig_cli_user_settings(pytestconfig, tmp_path, monkeypatch):
     # Get the revision number
     revision = int(pytestconfig.getoption("ansys_version"))
     stubs_location = get_stubs_location()
-    # Point user settings to a temporary directory
-    if "win" in sys.platform:
-        monkeypatch.setenv("APPDATA", str(tmp_path))
-    elif "lin" in sys.platform:
-        monkeypatch.setenv("HOME", str(tmp_path))
+    # Point user settings to a temporary directory (never the real user's settings)
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
     settings_json = get_settings_location()
     settings_json.parent.mkdir(parents=True, exist_ok=True)
     settings_json.write_text('{"editor.tabSize": 4}', encoding="utf-8")
@@ -605,3 +599,53 @@ def test_cli_enginetype_errors(disable_cli, pytestconfig):
             "--enginetype option for cpython is only applicable for version 261 or later."
             in result.output
         )
+
+
+@pytest.mark.cli
+@pytest.mark.parametrize(
+    "platform, settings_parts",
+    [
+        ("win32", ("appdata", "Code", "User", "settings.json")),
+        ("linux", ("home", ".config", "Code", "User", "settings.json")),
+        ("darwin", ("home", "Library", "Application Support", "Code", "User", "settings.json")),
+    ],
+)
+def test_ideconfig_cli_user_settings_per_platform(tmp_path, monkeypatch, platform, settings_parts):
+    """Test that user settings go to the platform's VS Code location, never to the cwd."""
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+
+    result = CliRunner().invoke(
+        ideconfig_cli, ["--ide", "vscode", "--target", "user", "--revision", str(MAX_STUBS_REVN)]
+    )
+
+    settings_json = tmp_path.joinpath(*settings_parts)
+    assert result.exit_code == 0, result.output
+    assert settings_json.is_file()
+    assert (
+        str(STUBS_LOC / f"v{MAX_STUBS_REVN}")
+        in json.loads(settings_json.read_text())["python.analysis.extraPaths"]
+    )
+    assert list(cwd.iterdir()) == []
+
+
+@pytest.mark.cli
+@pytest.mark.parametrize("platform, env_var", [("win32", "APPDATA"), ("freebsd14", None)])
+def test_ideconfig_cli_user_settings_unknown_location(tmp_path, monkeypatch, platform, env_var):
+    """Test that an unknown settings location is an error instead of a relative path."""
+    monkeypatch.setattr(sys, "platform", platform)
+    if env_var:
+        monkeypatch.delenv(env_var, raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(
+        ideconfig_cli, ["--ide", "vscode", "--target", "user", "--revision", str(MAX_STUBS_REVN)]
+    )
+
+    assert result.exit_code != 0
+    assert isinstance(result.exception, RuntimeError)
+    assert list(tmp_path.iterdir()) == []

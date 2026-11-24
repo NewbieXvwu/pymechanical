@@ -78,6 +78,21 @@ def get_stubs_versions(stubs_location: Path):
     return revns
 
 
+def _get_user_settings_path() -> Path:
+    """Get the VS Code user settings path for the current platform."""
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        if not appdata:
+            raise RuntimeError("APPDATA is not set, so the VS Code user settings cannot be found.")
+        return Path(appdata) / "Code" / "User" / "settings.json"  # pragma: no cover
+    home = os.environ.get("HOME") or str(Path.home())
+    if sys.platform == "darwin":
+        return Path(home) / "Library" / "Application Support" / "Code" / "User" / "settings.json"
+    if sys.platform.startswith("linux"):
+        return Path(home) / ".config" / "Code" / "User" / "settings.json"
+    raise RuntimeError(f"Unsupported platform for VS Code user settings: {sys.platform}")
+
+
 def _get_workspace_settings_path() -> Path:
     """Get workspace VS Code settings path from current directory context."""
     current_dir = Path.cwd().resolve()
@@ -142,15 +157,8 @@ def _vscode_impl(
         If unspecified, it finds the default Mechanical version from ansys-tools-path.
     """
     # Update the user or workspace settings
-    settings_json: Path | str = "the settings.json file"
     if target == "user":
-        # Get the path to the user's settings.json file depending on the platform
-        if "win" in sys.platform:
-            appdata = os.environ.get("APPDATA", "")
-            settings_json = Path(appdata) / "Code" / "User" / "settings.json"  # pragma: no cover
-        elif "lin" in sys.platform:
-            home = os.environ.get("HOME", "")
-            settings_json = Path(home) / ".config" / "Code" / "User" / "settings.json"
+        settings_json = _get_user_settings_path()
     elif target == "workspace":
         settings_json = _get_workspace_settings_path()
     else:

@@ -73,7 +73,7 @@ class UniqueUserProfile:
     def update_environment(self, env) -> None:
         """Set environment variables for new user profile."""
         home = self.location
-        if "win" in sys.platform:
+        if sys.platform == "win32":
             appdata_dir = home / "AppData"
             appdata_local_temp = str(appdata_dir / "Local" / "Temp")
 
@@ -82,7 +82,7 @@ class UniqueUserProfile:
             env["LOCALAPPDATA"] = str(appdata_dir / "Local")
             env["TMP"] = appdata_local_temp
             env["TEMP"] = appdata_local_temp
-        elif "lin" in sys.platform:
+        elif sys.platform.startswith("linux"):
             env["HOME"] = str(home)
         else:
             raise RuntimeError(f"Unsupported platform: {sys.platform}")
@@ -94,9 +94,10 @@ class UniqueUserProfile:
     def mkdirs(self) -> None:
         """Create a unique user profile & set up the directory tree."""
         self.location.mkdir(parents=True, exist_ok=True)
-        if "win" in sys.platform:
+        locs: list[str]  # mypy prunes sys.platform branches for the host platform
+        if sys.platform == "win32":
             locs = ["AppData/Roaming", "AppData/Local", "Documents"]
-        elif "lin" in sys.platform:
+        elif sys.platform.startswith("linux"):
             locs = [".config", "temp/reports"]
         else:
             raise RuntimeError(f"Unsupported platform: {sys.platform}")
@@ -107,9 +108,10 @@ class UniqueUserProfile:
 
     def copy_profiles(self) -> None:
         """Copy current user directories into a new user profile."""
-        if "win" in sys.platform:
+        locs: list[str]  # mypy prunes sys.platform branches for the host platform
+        if sys.platform == "win32":
             locs = ["AppData/Roaming/Ansys", "AppData/Local/Ansys"]
-        elif "lin" in sys.platform:
+        elif sys.platform.startswith("linux"):
             locs = [".mw/Application Data/Ansys", ".config/Ansys"]
         else:
             raise RuntimeError(f"Unsupported platform: {sys.platform}")
