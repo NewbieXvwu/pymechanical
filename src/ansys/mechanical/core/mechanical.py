@@ -95,6 +95,18 @@ DEFAULT_FILE_CHUNK_SIZE = 1024 * 1024  # 1MB
 """Default file chunk size."""
 
 
+def _server_path(path: str) -> pathlib.PurePath:
+    """Return a path reported by the Mechanical server as a pure path of the server's flavor.
+
+    The server and the client can run on different platforms (for example, a Windows
+    server used from a Linux or macOS client), so server paths must not be parsed with
+    the client's ``pathlib.Path``.
+    """
+    if "\\" in path or (len(path) > 1 and path[1] == ":"):
+        return pathlib.PureWindowsPath(path)
+    return pathlib.PurePosixPath(path)
+
+
 def setup_logger(loglevel="INFO", log_file=True, mechanical_instance=None):
     """Initialize the logger for the given mechanical instance."""
     # Return existing log if this function has already been called
@@ -1596,7 +1608,7 @@ for dirPath, _, fileNames in os.walk(rootDir):
 
         for each_file in list_files:
             try:
-                file_name = Path(each_file).name  # Getting only the name of the file.
+                file_name = _server_path(each_file).name  # Getting only the name of the file.
                 #  We try to avoid that when the full path is supplied. It crashes when trying
                 # to do `os.path.join(target_dir"os.getcwd()", file_name "full filename path"`
                 # This produces the file structure to flat out, but it is fine,
@@ -1774,8 +1786,10 @@ for dirPath, _, fileNames in os.walk(rootDir):
         # remove the trailing slash - server could be windows or linux
         project_directory = project_directory.rstrip("\\/")
 
+        # server paths use the server's flavor (the client may run on another platform)
+        project_path = _server_path(project_directory)
         # this is where .mechddb resides
-        parent_directory = str(Path(project_directory).parent)
+        parent_path = project_path.parent
 
         list_of_files = []
 
@@ -1786,9 +1800,9 @@ for dirPath, _, fileNames in os.walk(rootDir):
             for each_extension in extensions:
                 # mechdb resides one level above project directory
                 if "mechdb" == each_extension.lower():
-                    file_temp = str(Path(parent_directory) / f"*.{each_extension}")
+                    file_temp = str(parent_path / f"*.{each_extension}")
                 else:
-                    file_temp = str(Path(project_directory) / "**" / f"*.{each_extension}")
+                    file_temp = str(project_path / "**" / f"*.{each_extension}")
 
                 if self._local:
                     list_files_expanded = self._get_files(file_temp, recursive=True)
@@ -1811,8 +1825,12 @@ for dirPath, _, fileNames in os.walk(rootDir):
 
         for file in files:
             # create similar hierarchy locally
-            new_path = file.replace(parent_directory, destination_directory)
-            new_path_dir = str(Path(new_path).parent)
+            server_file = _server_path(file)
+            try:
+                relative_parts = server_file.relative_to(parent_path).parent.parts
+            except ValueError:
+                relative_parts = ()
+            new_path_dir = str(Path(destination_directory).joinpath(*relative_parts))
             temp_files = self.download(
                 files=file, target_dir=new_path_dir, progress_bar=progress_bar
             )
